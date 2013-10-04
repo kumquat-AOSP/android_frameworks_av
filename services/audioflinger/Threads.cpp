@@ -65,6 +65,11 @@
 #include <cpustats/ThreadCpuUsage.h>
 #endif
 
+#ifdef SRS_PROCESSING
+#include "srs_processing.h"
+#include "postpro_patch_ics.h"
+#endif
+
 // ----------------------------------------------------------------------------
 
 // Note: the following macro is used for extremely verbose logging message.  In
@@ -2182,6 +2187,13 @@ bool AudioFlinger::PlaybackThread::threadLoop()
 
     standbyTime = systemTime();
 
+#ifdef SRS_PROCESSING
+if (mType == MIXER) {
+        POSTPRO_PATCH_ICS_OUTPROC_MIX_INIT(this, gettid());
+    } else if (mType == DUPLICATING) {
+        POSTPRO_PATCH_ICS_OUTPROC_DUPE_INIT(this, gettid());
+    }
+#endif
     // MIXER
     nsecs_t lastWarning = 0;
 
@@ -2365,6 +2377,15 @@ bool AudioFlinger::PlaybackThread::threadLoop()
         if (!waitingAsyncCallback()) {
             // sleepTime == 0 means we must write to audio hardware
             if (sleepTime == 0) {
+#ifdef SRS_PROCESSING
+                if (mType == MIXER) {
+                    POSTPRO_PATCH_ICS_OUTPROC_MIX_SAMPLES(this, mFormat, mMixBuffer,
+                        mixBufferSize, mSampleRate, mChannelCount);
+                } else if (mType == DUPLICATING) {
+                    POSTPRO_PATCH_ICS_OUTPROC_DUPE_SAMPLES(this, mFormat, mMixBuffer,
+                        mixBufferSize, mSampleRate, mChannelCount);
+                }
+#endif
                 if (mBytesRemaining) {
                     ssize_t ret = threadLoop_write();
                     if (ret < 0) {
@@ -2426,6 +2447,13 @@ if (mType == MIXER) {
         }
     }
 
+#ifdef SRS_PROCESSING
+        if (mType == MIXER) {
+            POSTPRO_PATCH_ICS_OUTPROC_MIX_EXIT(this, gettid());
+        } else if (mType == DUPLICATING) {
+            POSTPRO_PATCH_ICS_OUTPROC_DUPE_EXIT(this, gettid());
+        }
+#endif
     releaseWakeLock();
     mWakeLockUids.clear();
     mActiveTracksGeneration++;
@@ -3396,6 +3424,9 @@ bool AudioFlinger::MixerThread::checkForNewParameters_l()
         AudioParameter param = AudioParameter(keyValuePair);
         int value;
 
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_ICS_OUTPROC_MIX_ROUTE(this, param, value);
+#endif
         if (param.getInt(String8(AudioParameter::keySamplingRate), value) == NO_ERROR) {
             reconfig = true;
         }
@@ -5391,13 +5422,20 @@ AudioFlinger::DirectAudioTrack::DirectAudioTrack(const sp<AudioFlinger>& audioFl
       mClient(client), mEffectConfigChanged(false), mKillEffectsThread(false), mFlag(outflag),
       mEffectsThreadScratchBuffer(NULL)
 {
+#ifdef SRS_PROCESSING
+    ALOGD("SRS_Processing - DirectAudioTrack - OutNotify_Init: %p TID %d\n", this, gettid());
+    POSTPRO_PATCH_ICS_OUTPROC_DIRECT_INIT(this, gettid());
+    SRS_Processing::ProcessOutRoute(SRS_Processing::AUTO, this, outputDesc->device);
+#endif
     if (mFlag & AUDIO_OUTPUT_FLAG_LPA) {
         ALOGV("create effects thread for LPA");
         createEffectThread();
         allocateBufPool();
+#ifdef SRS_PROCESSING
     } else if (mFlag & AUDIO_OUTPUT_FLAG_TUNNEL) {
         ALOGV("create effects thread for TUNNEL");
         createEffectThread();
+#endif
     }
     outputDesc->mVolumeScale = 1.0;
     mDeathRecipient = new PMDeathRecipient(this);
@@ -5409,16 +5447,28 @@ void AudioFlinger::DirectAudioTrack::signalEffect() {
         mEffectConfigChanged = true;
         mEffectCv.signal();
     }
+#ifdef SRS_PROCESSING
+    if (mFlag & AUDIO_OUTPUT_FLAG_TUNNEL){
+        mEffectConfigChanged = true;
+        mEffectCv.signal();
+    }
+#endif
 }
 
 AudioFlinger::DirectAudioTrack::~DirectAudioTrack() {
+#ifdef SRS_PROCESSING
+    ALOGD("SRS_Processing - DirectAudioTrack - OutNotify_Init: %p TID %d\n", this, gettid());
+    POSTPRO_PATCH_ICS_OUTPROC_DIRECT_EXIT(this, gettid());
+#endif
     if (mFlag & AUDIO_OUTPUT_FLAG_LPA) {
         requestAndWaitForEffectsThreadExit();
         mAudioFlinger->deleteEffectSession();
         deallocateBufPool();
+#ifdef SRS_PROCESSING
     } else if (mFlag & AUDIO_OUTPUT_FLAG_TUNNEL) {
         requestAndWaitForEffectsThreadExit();
         mAudioFlinger->deleteEffectSession();
+#endif
     }
     AudioSystem::releaseOutput(mOutput);
     releaseWakeLock();
