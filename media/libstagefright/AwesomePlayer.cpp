@@ -42,7 +42,9 @@
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/timedtext/TimedTextDriver.h>
 #include <media/stagefright/AudioPlayer.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/LPAPlayer.h>
+#endif
 #ifdef USE_TUNNEL_MODE
 #include <media/stagefright/TunnelPlayer.h>
 #endif
@@ -55,7 +57,9 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif
 #include <media/stagefright/Utils.h>
 
 #include <gui/IGraphicBufferProducer.h>
@@ -67,8 +71,10 @@
 
 #define USE_SURFACE_ALLOC 1
 #define FRAME_DROP_FREQ 0
+#ifdef QCOM_HARDWARE
 #define LPA_MIN_DURATION_USEC_ALLOWED 30000000
 #define LPA_MIN_DURATION_USEC_DEFAULT 60000000
+#endif
 
 namespace android {
 
@@ -76,10 +82,12 @@ static int64_t kLowWaterMarkUs = 2000000ll;  // 2secs
 static int64_t kHighWaterMarkUs = 5000000ll;  // 5secs
 static const size_t kLowWaterMarkBytes = 40000;
 static const size_t kHighWaterMarkBytes = 200000;
+#ifdef QCOM_HARDWARE
 static const int64_t kInitFrameDurationUs = 16000;
 static const int64_t kScheduleLagGapUs = 1000;
 static const int64_t kDefaultEventDelayUs = 10000;
 int AwesomePlayer::mTunnelAliveAP = 0;
+#endif
 
 // maximum time in paused state when offloading audio decompression. When elapsed, the AudioPlayer
 // is destroyed to allow the audio DSP to power down.
@@ -217,7 +225,9 @@ AwesomePlayer::AwesomePlayer()
       mVideoBuffer(NULL),
       mDecryptHandle(NULL),
       mLastVideoTimeUs(-1),
+#ifdef QCOM_HARDWARE
       mFrameDurationUs(kInitFrameDurationUs),
+#endif
       mTextDriver(NULL),
       mOffloadAudio(false),
       mAudioTearDown(false) {
@@ -244,8 +254,10 @@ AwesomePlayer::AwesomePlayer()
     mAudioTearDownEventPending = false;
 
     reset();
+#ifdef QCOM_HARDWARE
     mIsTunnelAudio = false;
     mLateAVSyncMargin = ExtendedUtils::ShellProp::getMaxAVSyncLateMargin();
+#endif
 }
 
 AwesomePlayer::~AwesomePlayer() {
@@ -255,6 +267,7 @@ AwesomePlayer::~AwesomePlayer() {
 
     reset();
 
+#ifdef QCOM_HARDWARE
     // Disable Tunnel Mode Audio
     if (mIsTunnelAudio) {
         if (mTunnelAliveAP > 0) {
@@ -263,9 +276,11 @@ AwesomePlayer::~AwesomePlayer() {
         }
     }
     mIsTunnelAudio = false;
+#endif
     mClient.disconnect();
 }
 
+#ifdef QCOM_HARDWARE
 void AwesomePlayer::printStats() {
     char value[PROPERTY_VALUE_MAX];
     property_get("persist.debug.sf.statistics", value, "0");
@@ -305,6 +320,7 @@ void AwesomePlayer::printStats() {
             (mFlags & PLAYING) > 0);
     }
 }
+#endif
 
 void AwesomePlayer::cancelPlayerEvents(bool keepNotifications) {
     mQueue.cancelEvent(mVideoEvent->eventID());
@@ -382,6 +398,7 @@ status_t AwesomePlayer::setDataSource_l(
     return OK;
 }
 
+#ifdef QCOM_HARDWARE
 void AwesomePlayer::printFileName(int fd) {
 
     char symName[40] = {0};
@@ -393,16 +410,21 @@ void AwesomePlayer::printFileName(int fd) {
         ALOGD("printFileName fd(%d) -> %s", fd, fileName);
     }
 }
+#endif
 
 status_t AwesomePlayer::setDataSource(
         int fd, int64_t offset, int64_t length) {
     Mutex::Autolock autoLock(mLock);
 
+#ifdef QCOM_HARDWARE
     ALOGD("Before reset_l");
+#endif
     reset_l();
 
+#ifdef QCOM_HARDWARE
     if(fd)
         printFileName(fd);
+#endif
 
     sp<DataSource> dataSource = new FileSource(fd, offset, length);
 
@@ -649,8 +671,10 @@ void AwesomePlayer::reset_l() {
 
     mVideoRenderer.clear();
 
+#ifdef QCOM_HARDWARE
     modifyFlags(PLAYING, CLEAR);
     printStats();
+#endif
     if (mVideoSource != NULL) {
         shutdownVideoDecoder_l();
     }
@@ -672,7 +696,9 @@ void AwesomePlayer::reset_l() {
 
     mBitrate = -1;
     mLastVideoTimeUs = -1;
+#ifdef QCOM_HARDWARE
     mFrameDurationUs = kInitFrameDurationUs;
+#endif
     {
         Mutex::Autolock autoLock(mStatsLock);
         mStats.mFd = -1;
@@ -686,6 +712,7 @@ void AwesomePlayer::reset_l() {
         mStats.mVideoHeight = -1;
         mStats.mFlags = 0;
         mStats.mTracks.clear();
+#ifdef QCOM_HARDWARE
         mStats.mConsecutiveFramesDropped = 0;
         mStats.mCatchupTimeStart = 0;
         mStats.mNumTimesSyncLoss = 0;
@@ -701,6 +728,7 @@ void AwesomePlayer::reset_l() {
         mStats.mLastSeekToTimeMs = 0;
         mStats.mResumeDelayStartUs = -1;
         mStats.mSeekDelayStartUs = -1;
+#endif
     }
 
     mWatchForAudioSeekComplete = false;
@@ -1029,10 +1057,12 @@ status_t AwesomePlayer::play_l() {
             // We don't want to post an error notification at this point,
             // the error returned from MediaPlayer::start() will suffice.
             bool sendErrorNotification = false;
+#ifdef QCOM_HARDWARE
             if(mIsTunnelAudio) {
                 // For tunnel Audio error has to be posted to the client
                 sendErrorNotification = true;
             }
+#endif
             status_t err = startAudioPlayer_l(sendErrorNotification);
 
             if ((err != OK) && mOffloadAudio) {
@@ -1085,6 +1115,7 @@ status_t AwesomePlayer::play_l() {
         mTimeSource = &mSystemTimeSource;
     }
 
+#ifdef QCOM_HARDWARE
     {
         Mutex::Autolock autoLock(mStatsLock);
         if (mStats.mVeryFirstFrame) {
@@ -1093,6 +1124,7 @@ status_t AwesomePlayer::play_l() {
             mStats.mResumeDelayStartUs = getTimeOfDayUs();
         }
     }
+#endif
 
     if (mVideoSource != NULL) {
         // Kick off video playback
@@ -1131,11 +1163,13 @@ void AwesomePlayer::createAudioPlayer_l()
     uint32_t flags = 0;
     int64_t cachedDurationUs;
     bool eos;
+#ifdef QCOM_HARDWARE
     sp<MetaData> format = mAudioTrack->getFormat();
     const char *mime;
     bool success = format->findCString(kKeyMIMEType, &mime);
     int tunnelObjectsAlive = 0;
     CHECK(success);
+#endif
     if (mOffloadAudio) {
         flags |= AudioPlayer::USE_OFFLOAD;
     } else if (mVideoSource == NULL
@@ -1150,6 +1184,7 @@ void AwesomePlayer::createAudioPlayer_l()
     if (mVideoSource != NULL) {
         flags |= AudioPlayer::HAS_VIDEO;
     }
+#ifdef QCOM_HARDWARE
 #ifdef USE_TUNNEL_MODE
     // Create tunnel player if tunnel mode is enabled
     ALOGW("Trying to create tunnel player mIsTunnelAudio %d, \
@@ -1227,8 +1262,11 @@ void AwesomePlayer::createAudioPlayer_l()
     }
     if(mAudioPlayer == NULL) {
         ALOGV("AudioPlayer created, Non-LPA mode mime %s duration %lld\n", mime, mDurationUs);
+#endif
         mAudioPlayer = new AudioPlayer(mAudioSink, flags, this);
+#ifdef QCOM_HARDWARE
     }
+#endif
     mAudioPlayer->setSource(mAudioSource);
 
     mTimeSource = mAudioPlayer;
@@ -1269,7 +1307,9 @@ status_t AwesomePlayer::startAudioPlayer_l(bool sendErrorNotification) {
                 true /* sourceAlreadyStarted */);
 
         if (err != OK) {
+#ifdef QCOM_HARDWARE
             ALOGE("AudioPlayer start error");
+#endif
             if (sendErrorNotification) {
                 notifyListener_l(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
             }
@@ -1460,11 +1500,13 @@ status_t AwesomePlayer::pause_l(bool at_eos) {
                 Playback::PAUSE, 0);
     }
 
+#ifdef QCOM_HARDWARE
     if(!(mFlags & VIDEO_AT_EOS)){
         Mutex::Autolock autoLock(mStatsLock);
         mStats.mLastPausedTimeMs = mVideoTimeUs/1000;
         printStats();
     }
+#endif
 
     uint32_t params = IMediaPlayerService::kBatteryDataTrackDecoder;
     if ((mAudioSource != NULL) && (mAudioSource != mAudioTrack)) {
@@ -1626,10 +1668,12 @@ status_t AwesomePlayer::seekTo_l(int64_t timeUs) {
 
     mSeeking = SEEK;
 
+#ifdef QCOM_HARDWARE
     {
         Mutex::Autolock autoLock(mStatsLock);
         mStats.mSeekDelayStartUs = getTimeOfDayUs();
     }
+#endif
     mSeekNotificationSent = false;
     mSeekTimeUs = timeUs;
     modifyFlags((AT_EOS | AUDIO_AT_EOS | VIDEO_AT_EOS), CLEAR);
@@ -1712,6 +1756,7 @@ status_t AwesomePlayer::initAudioDecoder() {
     mOffloadAudio = canOffloadStream(meta, (mVideoSource != NULL),
                                      isStreamingHTTP(), streamType);
 
+#ifdef QCOM_HARDWARE
     int32_t nchannels = 0;
     int32_t isADTS = 0;
     meta->findInt32( kKeyChannelCount, &nchannels );
@@ -1775,8 +1820,13 @@ status_t AwesomePlayer::initAudioDecoder() {
         if(mIsTunnelAudio) {
             mTunnelAliveAP++;
         }
+#else // QCOM_HARDWARE
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        ALOGV("createAudioPlayer: bypass OMX (raw)");
+#endif // QCOM_HARDWARE
         mAudioSource = mAudioTrack;
     } else {
+#ifdef QCOM_HARDWARE
         // For LPA Playback use the decoder without OMX layer
         char *matchComponentName = NULL;
         int64_t durationUs;
@@ -1823,11 +1873,23 @@ status_t AwesomePlayer::initAudioDecoder() {
                 mClient.interface(), mAudioTrack->getFormat(),
                 false, // createEncoder
                 mAudioTrack, matchComponentName, flags,NULL);
+#else // QCOM_HARDWARE
+        // If offloading we still create a OMX decoder as a fall-back
+        // but we don't start it
+        mOmxSource = OMXCodec::Create(
+                mClient.interface(), mAudioTrack->getFormat(),
+                false, // createEncoder
+                mAudioTrack);
+#endif // QCOM_HARDWARE
 
         if (mOffloadAudio) {
             ALOGV("createAudioPlayer: bypass OMX (offload)");
             mAudioSource = mAudioTrack;
-        }
+#ifndef QCOM_HARDWARE
+        } else {
+            mAudioSource = mOmxSource;
+#endif
+       }
     }
 
     if (mAudioSource != NULL) {
@@ -2023,17 +2085,21 @@ void AwesomePlayer::finishSeekIfNecessary(int64_t videoTimeUs) {
                 Playback::START, videoTimeUs / 1000);
     }
 
+#ifdef QCOM_HARDWARE
     {
         Mutex::Autolock autoLock(mStatsLock);
         mStats.mLastSeekToTimeMs = mSeekTimeUs/1000;
         printStats();
     }
+#endif
 }
 
 void AwesomePlayer::onVideoEvent() {
     ATRACE_CALL();
+#ifdef QCOM_HARDWARE
     int64_t eventStartTimeUs = mSystemTimeSource.getRealTimeUs();
     int64_t earlyGapUs = kScheduleLagGapUs; // gap for in case of event scheduling lag
+#endif
     Mutex::Autolock autoLock(mLock);
     if (!mVideoEventPending) {
         // The event has been cancelled in reset_l() but had already
@@ -2042,6 +2108,7 @@ void AwesomePlayer::onVideoEvent() {
     }
     mVideoEventPending = false;
 
+#ifdef QCOM_HARDWARE
     {
         Mutex::Autolock autoLock(mStatsLock);
         if(!mStats.mVeryFirstFrame && mSeeking == NO_SEEK){
@@ -2049,6 +2116,7 @@ void AwesomePlayer::onVideoEvent() {
         }
         mStats.mLastFrameUs = getTimeOfDayUs();
     }
+#endif
 
     if (mSeeking != NO_SEEK) {
         if (mVideoBuffer) {
@@ -2143,11 +2211,13 @@ void AwesomePlayer::onVideoEvent() {
 
     int64_t timeUs;
     CHECK(mVideoBuffer->meta_data()->findInt64(kKeyTime, &timeUs));
+#ifdef QCOM_HARDWARE
     if ((mLastVideoTimeUs != timeUs)
           && (mLastVideoTimeUs > 0)
           && (mSeeking == NO_SEEK)) {
         mFrameDurationUs = timeUs - mLastVideoTimeUs;
     }
+#endif
     mLastVideoTimeUs = timeUs;
 
     if (mSeeking == SEEK_VIDEO_ONLY) {
@@ -2188,6 +2258,7 @@ void AwesomePlayer::onVideoEvent() {
         mSinceLastDropped = 0;
         mTimeSourceDeltaUs = ts->getRealTimeUs() - timeUs;
 
+#ifdef QCOM_HARDWARE
         {
             Mutex::Autolock autoLock(mStatsLock);
             if(mStats.mVeryFirstFrame){
@@ -2196,6 +2267,7 @@ void AwesomePlayer::onVideoEvent() {
                 mStats.mLastFrameUs = getTimeOfDayUs();
             }
         }
+#endif
     }
 
     int64_t realTimeUs, mediaTimeUs, nowUs = 0, latenessUs = 0;
@@ -2249,7 +2321,11 @@ void AwesomePlayer::onVideoEvent() {
             }
         }
 
+#ifdef QCOM_HARDWARE
         if (latenessUs > mLateAVSyncMargin) {
+#else
+        if (latenessUs > 40000) {
+#endif
             // We're more than 40ms late.
             ALOGV("we're late by %lld us (%.2f secs)",
                  latenessUs, latenessUs / 1E6);
@@ -2268,28 +2344,35 @@ void AwesomePlayer::onVideoEvent() {
                 {
                     Mutex::Autolock autoLock(mStatsLock);
                     ++mStats.mNumVideoFramesDropped;
+#ifdef QCOM_HARDWARE
                     mStats.mConsecutiveFramesDropped++;
                     if (mStats.mConsecutiveFramesDropped == 1){
                         mStats.mCatchupTimeStart = mTimeSource->getRealTimeUs();
                     }
                     if(!(mFlags & AT_EOS)) logLate(timeUs,nowUs,latenessUs);
+#endif
                 }
-
+#ifdef QCOM_HARDWARE
                 int64_t eventDurationUs = mSystemTimeSource.getRealTimeUs() - eventStartTimeUs;
                 int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
                 delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
                 postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+#else
+                postVideoEvent_l(0);
+#endif
                 return;
             }
         }
 
         if (latenessUs < -10000) {
             // We're more than 10ms early.
+#ifdef QCOM_HARDWARE
             logOnTime(timeUs,nowUs,latenessUs);
             {
                 Mutex::Autolock autoLock(mStatsLock);
                 mStats.mConsecutiveFramesDropped = 0;
             }
+#endif
             postVideoEvent_l(10000);
             return;
         }
@@ -2313,6 +2396,7 @@ void AwesomePlayer::onVideoEvent() {
         if (mFlags & PLAYING) {
             notifyIfMediaStarted_l();
         }
+#ifdef QCOM_HARDWARE
         {
             Mutex::Autolock autoLock(mStatsLock);
             logOnTime(timeUs,nowUs,latenessUs);
@@ -2333,6 +2417,7 @@ void AwesomePlayer::onVideoEvent() {
                 }
             }
         }
+#endif
     }
 
     mVideoBuffer->release();
@@ -2343,10 +2428,48 @@ void AwesomePlayer::onVideoEvent() {
         return;
     }
 
+#ifdef QCOM_HARDWARE
     int64_t eventDurationUs = mSystemTimeSource.getRealTimeUs() - eventStartTimeUs;
     int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
     delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
     postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+#else
+    if (wasSeeking == NO_SEEK) {
+        MediaSource::ReadOptions options;
+        for (;;) {
+            status_t err = mVideoSource->read(&mVideoBuffer, &options);
+            if (err != OK) {
+                // deal with any errors next time
+                CHECK(mVideoBuffer == NULL);
+                postVideoEvent_l(0);
+                return;
+            }
+
+            if (mVideoBuffer->range_length() != 0) {
+                break;
+            }
+
+            // Some decoders, notably the PV AVC software decoder
+            // return spurious empty buffers that we just want to ignore.
+
+            mVideoBuffer->release();
+            mVideoBuffer = NULL;
+        }
+
+        {
+            Mutex::Autolock autoLock(mStatsLock);
+            ++mStats.mNumVideoFramesDecoded;
+        }
+
+        int64_t nextTimeUs;
+        CHECK(mVideoBuffer->meta_data()->findInt64(kKeyTime, &nextTimeUs));
+        int64_t delayUs = nextTimeUs - ts->getRealTimeUs() + mTimeSourceDeltaUs;
+        postVideoEvent_l(delayUs > 10000 ? 10000 : delayUs < 0 ? 0 : delayUs);
+        return;
+    }
+
+    postVideoEvent_l();
+#endif
 }
 
 void AwesomePlayer::postVideoEvent_l(int64_t delayUs) {
@@ -3189,6 +3312,7 @@ status_t AwesomePlayer::dump(int fd, const Vector<String16> &args) const {
 
         if ((ssize_t)i == mStats.mVideoTrackIndex) {
             fprintf(out,
+#ifdef QCOM_HARDWARE
                     "   videoDimensions(%d x %d)\n"
                     "   Total Video Frames Decoded(%lld)\n"
                     "   Total Video Frames Rendered(%lld)\n"
@@ -3202,9 +3326,15 @@ status_t AwesomePlayer::dump(int fd, const Vector<String16> &args) const {
                     "   Max Time Sync Loss(%u)\n"
                     "   EOS(%d)\n"
                     "   PLAYING(%d)\n",
+#else
+                    "   videoDimensions(%d x %d), "
+                    "numVideoFramesDecoded(%lld), "
+                    "numVideoFramesDropped(%lld)\n",
+#endif
                     mStats.mVideoWidth,
                     mStats.mVideoHeight,
                     mStats.mNumVideoFramesDecoded,
+#ifdef QCOM_HARDWARE
                     mStats.mTotalFrames,
                     mStats.mTotalTimeUs/1000,
                     mStats.mNumVideoFramesDropped,
@@ -3216,6 +3346,9 @@ status_t AwesomePlayer::dump(int fd, const Vector<String16> &args) const {
                     mStats.mMaxTimeSyncLoss/1000,
                     (mFlags & AT_EOS) > 0,
                     (mFlags & PLAYING) > 0);
+#else
+                    mStats.mNumVideoFramesDropped);
+#endif
         }
     }
 
@@ -3297,6 +3430,7 @@ void AwesomePlayer::onAudioTearDownEvent() {
     beginPrepareAsync_l();
 }
 
+#ifdef QCOM_HARDWARE
 bool AwesomePlayer::inSupportedTunnelFormats(const char * mime) {
     const char * tunnelFormats [ ] = {
         MEDIA_MIMETYPE_AUDIO_MPEG,
@@ -3430,4 +3564,5 @@ inline int64_t AwesomePlayer::getTimeOfDayUs() {
 
     return (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
+#endif
 }  // namespace android
